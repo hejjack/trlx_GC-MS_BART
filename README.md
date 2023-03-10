@@ -1,7 +1,7 @@
 
 [![DOI](https://zenodo.org/badge/545104023.svg)](https://zenodo.org/badge/latestdoi/545104023)
 
-# Transformer Reinforcement Learning X
+# Transformer Reinforcement Learning X (Original README)
 
 trlX is a distributed training framework designed from the ground up to focus on fine-tuning large language models with reinforcement learning using either a provided reward function or a reward-labeled dataset.
 
