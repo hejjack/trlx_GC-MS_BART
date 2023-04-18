@@ -60,22 +60,31 @@ def tokenize_dialogue(dialogue: Union[str, List[str]], tokenizer, max_length=204
 class PromptPipeline(BasePipeline):
     """
     Tokenizes prompts, unless they are already tokenized, and truncates them to `max_prompt_length` from the right
+    
+    Code Changed by Adam, so it doesn't tokenize the input
+    + also labels added (we need them in pipeline for reward computation)
     """
 
-    def __init__(self, prompts: List[str], max_prompt_length: int, tokenizer: PreTrainedTokenizer):
+    def __init__(self, prompts: List[str], max_prompt_length: int, tokenizer: PreTrainedTokenizer, labels: List[int] = None):
         super().__init__()
 
-        model_inputs = tokenizer(
-            prompts, truncation=True, padding=False, max_length=max_prompt_length, add_special_tokens=False
-        )
-
-        prompts_tokens = model_inputs["input_ids"]
-        attention_mask = model_inputs["attention_mask"]
-
+        model_inputs = prompts # by Adam
+        prompts_tokens = model_inputs["input_ids"].to_list()            # to_list() ... by Adam
+        attention_mask = model_inputs["encoder_attention_mask"].to_list()       # to_list() ... by Adam
+        position_ids = model_inputs["position_ids"].to_list()           # to_list() ... by Adam
+        
         self.tokenizer = tokenizer
         self.prompts = [
-            {"input_ids": tokens, "attention_mask": mask} for tokens, mask in zip(prompts_tokens, attention_mask)
-        ]
+            {"input_ids": prompts_tokens[i], 
+             "attention_mask": attention_mask[i], 
+             "position_ids": position_ids[i]} 
+                for i in range(len(prompts_tokens))] 
+        
+        # by Adam adding labels to batch. Only complicated bcs of the case when labels are missing
+        if labels is not None:
+            assert len(prompts) == len(labels)
+            for i, p in enumerate(self.prompts):
+                p["labels"] = labels[i]
 
     def __getitem__(self, ix: int):
         return self.prompts[ix]

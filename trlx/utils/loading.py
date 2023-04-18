@@ -6,8 +6,9 @@ from trlx.pipeline.offline_pipeline import PromptPipeline
 
 # Register load trainers via module import
 from trlx.trainer import _TRAINERS, register_trainer
-from trlx.trainer.accelerate_ilql_trainer import AccelerateILQLTrainer
-from trlx.trainer.accelerate_ppo_trainer import AcceleratePPOTrainer
+from trlx.trainer.accelerate_ilql_trainer import AccelerateILQLTrainer        # Adam commented, bcs it's worthless here
+# from trlx.trainer.accelerate_ppo_trainer import AcceleratePPOTrainer
+from trlx.trainer.accelerate_ppo_trainer import AcceleratePPOSpektroTrainer
 from trlx.trainer.accelerate_sft_trainer import AccelerateSFTTrainer
 
 try:

@@ -268,7 +268,7 @@ class AutoModelForCausalLMWithValueHead(PreTrainedModelWrapper):
         input_ids: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
-        position_ids: Optional[List[torch.FloatTensor]] = None,
+        position_ids: Optional[List[torch.LongTensor]] = None,
         head_mask: Optional[torch.Tensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         use_cache: Optional[bool] = None,
@@ -353,9 +353,9 @@ class AutoModelForCausalLMWithHydraValueHead(AutoModelForCausalLMWithValueHead):
         input_ids: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
-        position_ids: Optional[List[torch.FloatTensor]] = None,
+        position_ids: Optional[List[torch.LongTensor]] = None,
         head_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
+        inputs_embeds: Optional[torch.LongTensor] = None,
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
@@ -846,6 +846,7 @@ class AutoModelForSeq2SeqLMWithValueHead(PreTrainedModelWrapper):
         output_attentions: Optional[bool] = True,
         output_hidden_states: Optional[bool] = True,
         return_dict: Optional[bool] = None,
+        position_ids: Optional[torch.LongTensor] = None # by Adam
     ) -> Seq2SeqLMOutputWithValue:
         forward_kwargs = self.get_compatible_forward_kwargs(
             input_ids=input_ids,
@@ -863,11 +864,15 @@ class AutoModelForSeq2SeqLMWithValueHead(PreTrainedModelWrapper):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
+            position_ids=position_ids # by Adam
         )
         forward_kwargs["output_hidden_states"] = True
         forward_kwargs["return_dict"] = True
 
         outputs = self.base_model(**forward_kwargs)
+        print(f"NA TOTO SE MRKNI: {outputs}")
+        assert outputs.size()[1] <= self.config.train.seq_length, f"in AutoModelForSeq2SeqLMWithValueHead\noutputs len: {outputs.size()}\noutputs: {outputs}\nMODEL: {self.accelerator.unwrap_model(self.model)}"  # by Adam
+        
         last_hidden_state = outputs.decoder_hidden_states[-1]
         value = self.v_head(last_hidden_state).squeeze(-1)
 
@@ -937,6 +942,7 @@ class AutoModelForSeq2SeqLMWithHydraValueHead(AutoModelForSeq2SeqLMWithValueHead
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        position_ids: Optional[torch.LongTensor] = None # by Adam
     ) -> Seq2SeqLMOutputWithValue:
         forward_kwargs = self.get_compatible_forward_kwargs(
             input_ids=input_ids,
@@ -954,6 +960,7 @@ class AutoModelForSeq2SeqLMWithHydraValueHead(AutoModelForSeq2SeqLMWithValueHead
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
+            position_ids=position_ids # by Adam
         )
         return_dict = forward_kwargs.get("return_dict", True)
         forward_kwargs["output_hidden_states"] = True

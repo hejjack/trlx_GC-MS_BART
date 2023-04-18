@@ -194,7 +194,8 @@ class AccelerateRLTrainer(BaseRLTrainer):
             else:
                 output_start_ix = prompt_size
 
-            str_prompt = self.tokenizer.decode(prompt[:prompt_size], skip_special_tokens=True)
+#             str_prompt = self.tokenizer.decode(prompt[:prompt_size], skip_special_tokens=True) # commented by Adam
+            str_prompt = prompt # added instead of commented line by Adam (prompts = MZs are already decoded)
             str_output = self.tokenizer.decode(sample[output_start_ix:], skip_special_tokens=True)
 
             # Trim outputs up to `self.stop_sequences` if any are present
@@ -227,16 +228,21 @@ class AccelerateRLTrainer(BaseRLTrainer):
             kwargs = dict(self.generate_kwargs, **kwargs)
 
         with torch.no_grad():
-            return self.accelerator.unwrap_model(self.model).generate(
+            # by Adam, put back later
+            outputs = self.accelerator.unwrap_model(self.model).generate(
                 input_ids=input_ids, attention_mask=attention_mask, **kwargs
             )
+            
+            assert outputs.size()[1] <= self.config.train.seq_length, f"outputs len: {outputs.size()}\noutputs: {outputs}\nMODEL: {self.accelerator.unwrap_model(self.model)}"  # by Adam
+
+            
+            return outputs
 
     def generate_eval(self, input_ids, attention_mask=None, **kwargs):
         """Wraps hf's `generate` adding some specific method's defaults"""
         input_ids = input_ids.to(self.accelerator.device)
         if attention_mask is not None:
             attention_mask = attention_mask.to(self.accelerator.device)
-
         kwargs = dict(self.generate_kwargs, **kwargs)
 
         with torch.no_grad():
@@ -244,6 +250,13 @@ class AccelerateRLTrainer(BaseRLTrainer):
                 input_ids=input_ids, attention_mask=attention_mask, **kwargs
             )
 
+    def decode_labels(self, label):      # function by Adam
+        label[label == -100] = self.tokenizer.pad_token_id   
+        try:
+            return self.tokenizer.decode(label, skip_special_tokens=True)
+        except:
+            print(f"DECODE DIDN'T WORK\nlabels: {label}\npad token: {self.tokenizer.pad_token_id}")
+    
     def save_pretrained(self, directory: Optional[str] = None, **kwargs):
         """Save the underlying Hugging Face model, tokenizer, and configuration files to a directory for
         later use.
@@ -309,8 +322,10 @@ class AccelerateRLTrainer(BaseRLTrainer):
             all_samples = []
             all_prompts = []
             all_prompt_sizes = []
+            all_labels = [] # by Adam
             generate_time = time()
             for i_prompt, prompts in enumerate(self.eval_dataloader):
+                labels = prompts.pop("labels") # by Adam
                 if self.generate_sweep_kwarg:
                     samples = self.generate_eval(**prompts, **{gen_sweep_arg: gen_sweep_value})
                 else:
@@ -322,9 +337,9 @@ class AccelerateRLTrainer(BaseRLTrainer):
                     samples = samples[:, 1:].contiguous()
 
                 prompt_sizes = torch.tensor(prompts.input_ids.shape[1]).repeat(len(prompts.input_ids))
-                prompts, samples, prompt_sizes = self.accelerator.gather_for_metrics(
+                prompts, samples, prompt_sizes, labels = self.accelerator.gather_for_metrics(     # by Adam (adding labels)
                     self.accelerator.pad_across_processes(
-                        [prompts.input_ids, samples, prompt_sizes.to(samples.device)],
+                        [prompts.input_ids, samples, prompt_sizes.to(samples.device), labels],    # by Adam (adding labels)
                         dim=1,
                         pad_index=self.tokenizer.pad_token_id,
                     )
@@ -332,6 +347,7 @@ class AccelerateRLTrainer(BaseRLTrainer):
                 all_samples.extend(samples.tolist())
                 all_prompts.extend(prompts.tolist())
                 all_prompt_sizes.extend(prompt_sizes.tolist())
+                all_labels.extend(labels)     # by Adam
 
                 desc = [
                     f"generation sweep {i_sweep + 1}/{len(gen_sweep_values)}",
@@ -344,10 +360,10 @@ class AccelerateRLTrainer(BaseRLTrainer):
             stats["time/generate"] = time() - generate_time
 
             if self.accelerator.is_main_process:
-                str_samples, str_prompts, str_outputs = self.decode(all_prompts, all_samples, all_prompt_sizes)
-
-                columns = ["prompt", "output"]
-                columns_data = [str_prompts, str_outputs]
+                str_samples = [self.tokenizer.decode(sample, skip_special_tokens=True) for sample in all_samples] # decoding only the important part by Adam
+                str_labels = [self.decode_labels(label) for label in all_labels] # decoding only the important part by Adam
+                columns = ["prompt", "samples"]     # by Adam - changed "output" for "samples"
+                columns_data = [all_prompts, str_samples] # by Adam - changed "output" for "samples"
 
                 # in online setting, compute the reward for validation
                 if self.reward_fn:
@@ -355,8 +371,8 @@ class AccelerateRLTrainer(BaseRLTrainer):
                     rewards = torch.tensor(
                         self.reward_fn(
                             samples=str_samples,
-                            prompts=str_prompts,
-                            outputs=str_outputs,
+                            prompts=None,           # by Adam
+                            outputs=str_labels,     # by Adam
                         ),
                         dtype=float,
                     )
@@ -373,8 +389,8 @@ class AccelerateRLTrainer(BaseRLTrainer):
                     metric_time = time()
                     metrics = self.metric_fn(
                         samples=str_samples,
-                        prompts=str_prompts,
-                        outputs=str_outputs,
+                        prompts=all_prompts,     
+                        outputs=str_labels,
                     )
                     stats["time/metric"] = time() - metric_time
 

@@ -23,6 +23,9 @@ def train(  # noqa: C901
     metric_fn: Optional[Callable[[List[str], List[str], List[str]], Dict[str, List[float]]]] = None,
     config: Optional[TRLConfig] = None,
     stop_sequences: Optional[List[str]] = [],
+    labels: Optional[List[int]] = None, # added by Adam
+    eval_labels: Optional[List[int]] = None # added by Adam
+    
 ):
     """
     Dispatches online, offline reinforcement training or supervised finetuning
@@ -52,6 +55,8 @@ def train(  # noqa: C901
         stop_sequences (Optional[List[str]]):
             String sequences to trim generations (both for generating of experience and evaluation) up to its
             encounter in them. Generations will not contain them and also will also be right-stripped
+        labels (Optional[List[int]]): 
+            Added by Adam - encoded reference decoder output (e.g. reference SMILES) for a reward function to compute reward
     """
     if config is None:
         warnings.warn(
@@ -87,14 +92,14 @@ def train(  # noqa: C901
 
     # Online training against a reward function (e.g. PPO)
     if reward_fn:
-        prompts = prompts or [trainer.tokenizer.bos_token] * batch_size
+        prompts = prompts if not prompts.empty else [trainer.tokenizer.bos_token] * batch_size
 
         if eval_prompts is None:
             eval_prompts = prompts[:batch_size]
 
-        pipeline = get_pipeline(config.train.pipeline)(prompts, max_prompt_length, trainer.tokenizer)
+        pipeline = get_pipeline(config.train.pipeline)(prompts, max_prompt_length, trainer.tokenizer, labels) # by Adam - adding labels
         trainer.add_prompt_pipeline(pipeline)
-
+        
         if eval_prompts is None:
             eval_prompts = prompts[:batch_size]
 
@@ -117,7 +122,7 @@ def train(  # noqa: C901
     else:
         raise ValueError("Either `samples` or `reward_fn` should be given for training")
 
-    eval_pipeline = get_pipeline(config.train.pipeline)(eval_prompts, max_prompt_length, trainer.tokenizer)
+    eval_pipeline = get_pipeline(config.train.pipeline)(eval_prompts, max_prompt_length, trainer.tokenizer, eval_labels)
     trainer.add_eval_pipeline(eval_pipeline)
 
     trainer.learn()

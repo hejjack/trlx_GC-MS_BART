@@ -1,12 +1,13 @@
 import json
 import os
 import time
+import torch
 from typing import Iterable
 
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
-from trlx.data.ppo_types import PPORLBatch, PPORLElement
+from trlx.data.ppo_types import PPORLBatch, PPORLElement, PPORLSpektroBatch, PPORLSpektroElement
 from trlx.pipeline import BaseRolloutStore
 
 
@@ -58,6 +59,76 @@ class PPORolloutStorage(BaseRolloutStore):
                     padding_value=self.pad_token_id,
                     batch_first=True,
                 ).flip(1),
+                # Right pad the rest, to have a single horizontal query/response split
+                pad_sequence(
+                    [elem.response_tensor for elem in elems],
+                    padding_value=self.pad_token_id,
+                    batch_first=True,
+                ),
+                pad_sequence(
+                    [elem.logprobs for elem in elems],
+                    padding_value=0.0,
+                    batch_first=True,
+                ),
+                pad_sequence([elem.values for elem in elems], padding_value=0.0, batch_first=True),
+                pad_sequence(
+                    [elem.rewards for elem in elems],
+                    padding_value=0.0,
+                    batch_first=True,
+                ),
+            )
+
+        return DataLoader(self, batch_size, shuffle=shuffle, collate_fn=collate_fn)
+
+    
+class PPOSpektroRolloutStorage(BaseRolloutStore):
+    """
+    Rollout storage for training PPO with Spektro BART.
+    """
+    
+    def __init__(self, pad_token_id):
+        super().__init__()
+
+        self.pad_token_id = pad_token_id
+        self.history: Iterable[PPORLSpektroElement] = [None]
+
+    def push(self, exps: Iterable[PPORLSpektroElement]):
+        self.history += exps
+
+    def clear_history(self):
+        self.history = []
+
+    def export_history(self, location: str):
+        assert os.path.exists(location)
+
+        fpath = os.path.join(location, f"epoch-{str(time.time())}.json")
+
+        def exp_to_dict(exp):
+            {k: v.cpu().tolist() for k, v in exp.__dict__.items()}
+
+        data = [exp_to_dict(exp) for exp in self.history]
+        with open(fpath, "w") as f:
+            f.write(json.dumps(data, indent=2))
+
+    def __getitem__(self, index: int) -> PPORLSpektroElement:
+        return self.history[index]
+
+    def __len__(self) -> int:
+        return len(self.history)
+
+    
+    def create_loader(
+        self,
+        batch_size: int,
+        shuffle: bool,
+    ) -> DataLoader:
+        def collate_fn(elems: Iterable[PPORLSpektroElement]):            
+            
+            return PPORLSpektroBatch(
+                torch.stack([elem.query_tensor for elem in elems]),
+                
+                torch.stack([elem.position_ids for elem in elems]),
+                
                 # Right pad the rest, to have a single horizontal query/response split
                 pad_sequence(
                     [elem.response_tensor for elem in elems],
